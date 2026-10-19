@@ -1,0 +1,1183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⚛️ 物理课堂·随机点名器</title>
+<style>
+  :root {
+    --bg: #0a0e27;
+    --bg2: #141a3c;
+    --cyan: #22d3ee;
+    --purple: #a78bfa;
+    --pink: #f472b6;
+    --orange: #fbbf24;
+    --green: #34d399;
+    --text: #e5e7eb;
+    --muted: #9ca3af;
+    --card: rgba(255, 255, 255, 0.05);
+    --card-border: rgba(255, 255, 255, 0.1);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+    background: radial-gradient(1200px 700px at 50% -10%, #1e2a5e 0%, var(--bg) 55%, #05070f 100%);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+    position: relative;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ===== 背景粒子层 ===== */
+  #bgCanvas {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  /* ===== 布局 ===== */
+  .wrap {
+    position: relative;
+    z-index: 1;
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 28px 20px 60px;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+
+  header { text-align: center; }
+
+  header h1 {
+    font-size: clamp(26px, 5vw, 42px);
+    font-weight: 900;
+    letter-spacing: 2px;
+    background: linear-gradient(90deg, var(--cyan), var(--purple), var(--pink), var(--orange));
+    background-size: 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: gradientShift 6s linear infinite;
+  }
+  @keyframes gradientShift {
+    0% { background-position: 0% 50%; }
+    100% { background-position: 300% 50%; }
+  }
+
+  header .subtitle {
+    color: var(--muted);
+    margin-top: 6px;
+    font-size: 14px;
+    letter-spacing: 4px;
+  }
+
+  /* ===== 主舞台 ===== */
+  .stage {
+    position: relative;
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: 24px;
+    padding: 40px 24px 46px;
+    backdrop-filter: blur(10px);
+    text-align: center;
+    min-height: 320px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  }
+
+  .stage::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(600px 200px at 50% 0%, rgba(34, 211, 238, 0.12), transparent 70%);
+    pointer-events: none;
+  }
+
+  .name-display {
+    position: relative;
+    min-height: 150px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+  }
+
+  #currentName {
+    font-size: clamp(40px, 10vw, 88px);
+    font-weight: 900;
+    line-height: 1.1;
+    letter-spacing: 2px;
+    transition: color 0.2s, transform 0.2s, text-shadow 0.2s;
+    text-shadow: 0 0 30px rgba(34, 211, 238, 0.4);
+    word-break: break-all;
+    max-width: 100%;
+  }
+
+  #currentName.rolling {
+    color: var(--cyan);
+    animation: pulse 0.18s linear infinite;
+  }
+  @keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+  }
+
+  #currentName.winner {
+    color: #fff;
+    text-shadow:
+      0 0 20px var(--orange),
+      0 0 60px var(--orange),
+      0 0 100px var(--pink);
+    animation: winnerPop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  @keyframes winnerPop {
+    0% { transform: scale(0.4); opacity: 0; }
+    60% { transform: scale(1.25); }
+    100% { transform: scale(1); opacity: 1; }
+  }
+
+  .state-hint {
+    color: var(--muted);
+    font-size: 15px;
+    letter-spacing: 2px;
+  }
+
+  .quote {
+    min-height: 24px;
+    font-size: 15px;
+    color: var(--orange);
+    letter-spacing: 1px;
+  }
+
+  /* ===== 按钮 ===== */
+  .btn {
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+    font-weight: 700;
+    letter-spacing: 2px;
+    border-radius: 14px;
+    transition: transform 0.15s, box-shadow 0.15s, filter 0.15s;
+    user-select: none;
+  }
+  .btn:active { transform: scale(0.95); }
+
+  #drawBtn {
+    font-size: clamp(20px, 3.4vw, 26px);
+    padding: 18px 64px;
+    color: #fff;
+    background: linear-gradient(135deg, #0ea5e9, #6366f1 55%, #a855f7);
+    box-shadow: 0 12px 34px rgba(99, 102, 241, 0.45);
+    position: relative;
+    overflow: hidden;
+  }
+  #drawBtn:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 18px 44px rgba(99, 102, 241, 0.6);
+  }
+  #drawBtn:disabled {
+    filter: grayscale(0.6) brightness(0.7);
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .btn-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: center;
+  }
+
+  .btn-ghost {
+    font-size: 14px;
+    padding: 10px 20px;
+    color: var(--text);
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    letter-spacing: 1px;
+  }
+  .btn-ghost:hover { background: rgba(255, 255, 255, 0.12); }
+
+  /* ===== 两栏 ===== */
+  .columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 22px;
+  }
+  @media (max-width: 760px) {
+    .columns { grid-template-columns: 1fr; }
+  }
+
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: 20px;
+    padding: 20px;
+    backdrop-filter: blur(8px);
+  }
+
+  .panel h2 {
+    font-size: 17px;
+    margin-bottom: 14px;
+    letter-spacing: 2px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel h2 .badge {
+    font-size: 12px;
+    background: rgba(34, 211, 238, 0.2);
+    color: var(--cyan);
+    padding: 2px 10px;
+    border-radius: 20px;
+    letter-spacing: 1px;
+  }
+
+  .input-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  #nameInput {
+    flex: 1;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+    color: var(--text);
+    padding: 10px 14px;
+    font-size: 15px;
+    font-family: inherit;
+    outline: none;
+  }
+  #nameInput:focus { border-color: var(--cyan); }
+
+  #bulkInput {
+    width: 100%;
+    min-height: 84px;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+    color: var(--text);
+    padding: 10px 14px;
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    resize: vertical;
+    margin-bottom: 10px;
+  }
+  #bulkInput:focus { border-color: var(--cyan); }
+
+  .hint { font-size: 12px; color: var(--muted); margin-bottom: 10px; line-height: 1.6; }
+
+  /* 名单标签 */
+  .roster {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    max-height: 260px;
+    overflow-y: auto;
+    padding: 4px 2px;
+  }
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(167, 139, 250, 0.15);
+    border: 1px solid rgba(167, 139, 250, 0.3);
+    color: #e0d7ff;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 14px;
+    transition: all 0.2s;
+    cursor: pointer;
+  }
+  .tag:hover { background: rgba(244, 114, 182, 0.2); border-color: var(--pink); }
+  .tag .del {
+    cursor: pointer;
+    color: var(--muted);
+    font-weight: 700;
+    line-height: 1;
+  }
+  .tag .del:hover { color: var(--pink); }
+  .tag.picked {
+    background: rgba(251, 191, 36, 0.2);
+    border-color: var(--orange);
+    color: #fde68a;
+  }
+
+  .empty-tip {
+    color: var(--muted);
+    font-size: 14px;
+    width: 100%;
+    text-align: center;
+    padding: 18px 0;
+  }
+
+  /* 历史记录 */
+  .history {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 300px;
+    overflow-y: auto;
+  }
+  .history li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 10px;
+    padding: 9px 14px;
+    font-size: 14px;
+  }
+  .history li .h-name { font-weight: 700; color: var(--cyan); }
+  .history li .h-time { color: var(--muted); font-size: 12px; }
+  .history .empty { color: var(--muted); text-align: center; justify-content: center; }
+
+  /* 弹窗 */
+  .toast {
+    position: fixed;
+    top: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-80px);
+    background: rgba(17, 24, 39, 0.95);
+    border: 1px solid var(--card-border);
+    color: var(--text);
+    padding: 12px 24px;
+    border-radius: 12px;
+    font-size: 14px;
+    z-index: 100;
+    transition: transform 0.35s cubic-bezier(0.34, 1.3, 0.64, 1);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+
+  footer {
+    text-align: center;
+    color: var(--muted);
+    font-size: 12px;
+    letter-spacing: 1px;
+  }
+  .cloud-status { margin-top: 10px; font-size: 12px; color: var(--muted); letter-spacing: 1px; }
+  .cloud-status.ok { color: var(--green); }
+  .cloud-status.err { color: var(--orange); }
+
+  /* ===== 隐藏通道：导演模式弹窗 ===== */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    background: rgba(0, 0, 0, 0.6);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(4px);
+  }
+  .modal-overlay.show { display: flex; }
+  .modal {
+    background: #141a3c;
+    border: 1px solid var(--card-border);
+    border-radius: 18px;
+    padding: 26px;
+    width: min(92vw, 430px);
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  }
+  .modal h3 { font-size: 20px; margin-bottom: 10px; letter-spacing: 2px; }
+  .modal-desc { color: var(--muted); font-size: 13px; line-height: 1.7; margin-bottom: 16px; }
+  .modal-label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  .modal select {
+    width: 100%;
+    padding: 10px 14px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+    color: var(--text);
+    font-size: 15px;
+    font-family: inherit;
+    margin-bottom: 14px;
+    outline: none;
+  }
+  .modal-status { font-size: 13px; margin-bottom: 16px; color: var(--muted); }
+  .modal-status.active { color: var(--orange); }
+  .modal-btns { display: flex; flex-wrap: wrap; gap: 10px; }
+  .modal-btns .btn { padding: 10px 18px; font-size: 14px; }
+  #rigSetBtn { background: linear-gradient(135deg, #f59e0b, #ef4444); color: #fff; }
+
+  /* 滚动条 */
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.3); }
+</style>
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+
+<div class="wrap">
+  <header>
+    <h1>⚛️ 物理课堂 · 随机点名器</h1>
+    <div class="subtitle">让每一次提问都充满悬念 · 让每一位同学都精神抖擞</div>
+  </header>
+
+  <!-- 主舞台 -->
+  <section class="stage">
+    <div class="name-display">
+      <div id="currentName">准备就绪</div>
+    </div>
+    <div class="state-hint" id="stateHint">点击下方按钮开始抽选</div>
+    <div class="quote" id="quote"></div>
+
+    <div class="btn-row">
+      <button class="btn" id="drawBtn">🎲 开始抽选</button>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-ghost" id="clearHistoryBtn">清空记录</button>
+      <button class="btn btn-ghost" id="soundBtn">🔊 音效：开</button>
+    </div>
+  </section>
+
+  <!-- 两栏 -->
+  <div class="columns">
+    <!-- 名单管理 -->
+    <section class="panel">
+      <h2>👥 学生名单 <span class="badge" id="countBadge">0 人</span></h2>
+      <div class="input-row">
+        <input type="text" id="nameInput" placeholder="输入姓名，回车添加" maxlength="20">
+        <button class="btn btn-ghost" id="addBtn">添加</button>
+      </div>
+      <textarea id="bulkInput" placeholder="批量导入：每行一个姓名，或用一个空格 / 逗号分隔&#10;例如：&#10;张三 李四 王五"></textarea>
+      <button class="btn btn-ghost" id="bulkBtn" style="width:100%; margin-bottom:14px;">📥 批量导入</button>
+      <div class="roster" id="roster"></div>
+    </section>
+
+    <!-- 历史记录 -->
+    <section class="panel">
+      <h2>📜 抽选记录</h2>
+      <ul class="history" id="history"></ul>
+    </section>
+  </div>
+
+  <footer>
+    ⚡ F = m·a —— 每一次被点名的加速度，都是成长的一部分 ⚡
+    <div id="cloudStatus" class="cloud-status"></div>
+    <button class="btn btn-ghost" id="syncBtn" style="margin-top:10px; display:none;">🔄 立即同步</button>
+  </footer>
+</div>
+
+<!-- 隐藏通道：导演模式（内定抽选结果） -->
+<div class="modal-overlay" id="rigOverlay">
+  <div class="modal">
+    <h3>🎬 导演模式</h3>
+    <p class="modal-desc">悄悄内定下一位被抽到的同学。抽选动画照常播放、悬念依旧，学生不会察觉。抽中后内定自动取消。</p>
+    <label class="modal-label" for="rigSelect">选择内定同学</label>
+    <select id="rigSelect"></select>
+    <div class="modal-status" id="rigStatus">当前无内定，抽选为真随机</div>
+    <div class="modal-btns">
+      <button class="btn" id="rigSetBtn">🎯 内定下一位</button>
+      <button class="btn btn-ghost" id="rigClearBtn">取消内定</button>
+      <button class="btn btn-ghost" id="rigCloseBtn">关闭</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- ============================================================
+     云端共用配置（自己多设备同步名单）
+     —— 不填写则自动退化为「本地模式」，名单只存本机，其余功能照常
+
+     启用步骤：
+     1) 注册 https://supabase.com 并新建一个项目
+     2) 项目里打开 SQL Editor，粘贴执行下面的建表脚本：
+
+        create table if not exists public.picker_state (
+          id text primary key,
+          students jsonb not null default '[]'::jsonb,
+          history jsonb not null default '[]'::jsonb,
+          updated_at timestamptz
+        );
+        alter table public.picker_state enable row level security;
+        create policy "anon_full" on public.picker_state for all
+          using (true) with check (true);
+        grant all on public.picker_state to anon;
+
+     3) 打开 Project Settings → API，复制 Project URL 和 anon public key，
+        分别填到下面 url 和 anonKey 里
+     ============================================================ -->
+<script>
+  window.SUPABASE_CONFIG = {
+    url: 'https://xekslihevolwvhewaswo.supabase.co',        // 例：https://xxxxxxxx.supabase.co
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhla3NsaWhldm9sd3ZoZXdhc3dvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIzODU4ODMsImV4cCI6MjEwNzk2MTg4M30.7RP-gP1Yuwn_V2Bri2ufHUh2GLXvJd_bZu4rpF12WXo',    // 例：eyJhbGciOiJIUzI1NiIs...
+    table: 'picker_state',
+    rowId: 'default',
+  };
+</script>
+
+<script>
+(function () {
+  'use strict';
+
+  // ===== 状态 =====
+  const STORAGE_KEY = 'physics-picker-data-v1';
+  let students = [];
+  let history = [];
+  let soundOn = true;
+  let isRolling = false;
+  let riggedName = null; // 内定的同学（一次性，抽中后自动清除）
+
+  // ===== DOM =====
+  const $ = (id) => document.getElementById(id);
+  const currentNameEl = $('currentName');
+  const stateHintEl = $('stateHint');
+  const quoteEl = $('quote');
+  const drawBtn = $('drawBtn');
+  const nameInput = $('nameInput');
+  const addBtn = $('addBtn');
+  const bulkInput = $('bulkInput');
+  const bulkBtn = $('bulkBtn');
+  const rosterEl = $('roster');
+  const historyEl = $('history');
+  const countBadge = $('countBadge');
+  const clearHistoryBtn = $('clearHistoryBtn');
+  const soundBtn = $('soundBtn');
+  const toastEl = $('toast');
+
+  // ===== 物理趣味台词 =====
+  const QUOTES = [
+    '这位同学，请接受物理的召唤！',
+    '恭喜！今天被牛顿的苹果砸中了 🍎',
+    'E = mc²，就决定是你了！',
+    '库仑力把你吸引到了讲台前 ⚡',
+    '别紧张，万有引力会托住你的 🌍',
+    '请上台，用你的答案推动课堂的加速度！',
+    '麦克斯韦方程也预测不到是你 😄',
+    '动能定理：回答问题，动能满满！',
+    '这位同学，波动一下，请上台！',
+    '量子态坍缩了，观测结果是你 🔬',
+    '请回答！声音传播需要介质，但你不需要借口 😉',
+    '摩擦力都拦不住你上台的脚步！',
+  ];
+
+  // ===== 音效（Web Audio API）=====
+  let audioCtx = null;
+  function ensureAudio() {
+    if (!audioCtx) {
+      try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+      catch (e) { audioCtx = null; }
+    }
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+  }
+
+  function playTick(pitch) {
+    if (!soundOn) return;
+    const ctx = ensureAudio();
+    if (!ctx) return;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = pitch || 660;
+    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.08);
+  }
+
+  function playFanfare() {
+    if (!soundOn) return;
+    const ctx = ensureAudio();
+    if (!ctx) return;
+    const notes = [523.25, 659.25, 783.99, 1046.5]; // C5 E5 G5 C6
+    notes.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.value = freq;
+      const t = ctx.currentTime + i * 0.12;
+      gain.gain.setValueAtTime(0.001, t);
+      gain.gain.exponentialRampToValueAtTime(0.2, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.5);
+    });
+  }
+
+  // ===== 背景粒子动画 =====
+  const bgCanvas = $('bgCanvas');
+  const bgCtx = bgCanvas.getContext('2d');
+  const FORMULAS = ['F=ma', 'E=mc²', 'v=at', 'F=kx', 'P=W/t', 'U=IR', 'E=hν', 'a=v²/r', 'ρ=m/V', 'λ=v/f', 'q', 'm', 'Ω', 'Δ', 'θ', 'π', '∑'];
+  let particles = [];
+
+  function resizeCanvas() {
+    bgCanvas.width = window.innerWidth;
+    bgCanvas.height = window.innerHeight;
+  }
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+
+  function makeParticle(initial) {
+    return {
+      x: Math.random() * bgCanvas.width,
+      y: initial ? Math.random() * bgCanvas.height : bgCanvas.height + 40,
+      text: FORMULAS[Math.floor(Math.random() * FORMULAS.length)],
+      size: Math.random() * 22 + 14,
+      speedY: Math.random() * 0.5 + 0.2,
+      speedX: (Math.random() - 0.5) * 0.3,
+      alpha: Math.random() * 0.4 + 0.15,
+      hue: [187, 259, 330, 38][Math.floor(Math.random() * 4)],
+      wobble: Math.random() * Math.PI * 2,
+      wobbleSpeed: Math.random() * 0.02 + 0.005,
+    };
+  }
+
+  for (let i = 0; i < 26; i++) particles.push(makeParticle(true));
+
+  function drawBackground() {
+    bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+    particles.forEach((p) => {
+      p.y -= p.speedY;
+      p.x += p.speedX + Math.sin(p.wobble) * 0.4;
+      p.wobble += p.wobbleSpeed;
+      if (p.y < -50) Object.assign(p, makeParticle(false), { y: bgCanvas.height + 40 });
+      if (p.x < -60) p.x = bgCanvas.width + 40;
+      if (p.x > bgCanvas.width + 60) p.x = -40;
+
+      bgCtx.save();
+      bgCtx.globalAlpha = p.alpha;
+      bgCtx.fillStyle = `hsl(${p.hue}, 80%, 70%)`;
+      bgCtx.font = `${p.size}px "Segoe UI", "PingFang SC", sans-serif`;
+      bgCtx.fillText(p.text, p.x, p.y);
+      bgCtx.restore();
+    });
+    requestAnimationFrame(drawBackground);
+  }
+  drawBackground();
+
+  // ===== 彩带 / 烟花效果 =====
+  const confettiColors = ['#22d3ee', '#a78bfa', '#f472b6', '#fbbf24', '#34d399', '#f87171', '#60a5fa'];
+  let confetti = [];
+
+  function burstConfetti() {
+    const cx = bgCanvas.width / 2;
+    const cy = bgCanvas.height * 0.4;
+    for (let i = 0; i < 160; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 9 + 4;
+      confetti.push({
+        x: cx, y: cy,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 3,
+        size: Math.random() * 8 + 4,
+        color: confettiColors[Math.floor(Math.random() * confettiColors.length)],
+        life: 1,
+        decay: Math.random() * 0.01 + 0.008,
+        rot: Math.random() * Math.PI * 2,
+        rotSpeed: (Math.random() - 0.5) * 0.3,
+        shape: Math.random() > 0.5 ? 'rect' : 'circle',
+      });
+    }
+  }
+
+  function drawConfetti() {
+    if (confetti.length === 0) { requestAnimationFrame(drawConfetti); return; }
+    bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+
+    // 粒子
+    particles.forEach((p) => {
+      p.y -= p.speedY;
+      p.x += p.speedX + Math.sin(p.wobble) * 0.4;
+      p.wobble += p.wobbleSpeed;
+      if (p.y < -50) Object.assign(p, makeParticle(false), { y: bgCanvas.height + 40 });
+      if (p.x < -60) p.x = bgCanvas.width + 40;
+      if (p.x > bgCanvas.width + 60) p.x = -40;
+      bgCtx.save();
+      bgCtx.globalAlpha = p.alpha;
+      bgCtx.fillStyle = `hsl(${p.hue}, 80%, 70%)`;
+      bgCtx.font = `${p.size}px "Segoe UI", "PingFang SC", sans-serif`;
+      bgCtx.fillText(p.text, p.x, p.y);
+      bgCtx.restore();
+    });
+
+    // 彩带
+    confetti = confetti.filter((c) => c.life > 0);
+    confetti.forEach((c) => {
+      c.x += c.vx;
+      c.y += c.vy;
+      c.vy += 0.15; // 重力
+      c.vx *= 0.99;
+      c.life -= c.decay;
+      c.rot += c.rotSpeed;
+      bgCtx.save();
+      bgCtx.globalAlpha = Math.max(c.life, 0);
+      bgCtx.translate(c.x, c.y);
+      bgCtx.rotate(c.rot);
+      bgCtx.fillStyle = c.color;
+      if (c.shape === 'rect') {
+        bgCtx.fillRect(-c.size / 2, -c.size / 4, c.size, c.size / 2);
+      } else {
+        bgCtx.beginPath();
+        bgCtx.arc(0, 0, c.size / 2, 0, Math.PI * 2);
+        bgCtx.fill();
+      }
+      bgCtx.restore();
+    });
+
+    if (confetti.length > 0) requestAnimationFrame(drawConfetti);
+    else requestAnimationFrame(drawBackground);
+  }
+
+  // ===== 持久化（本地 + 云端）=====
+  const CLOUD = (typeof window.SUPABASE_CONFIG === 'object' && window.SUPABASE_CONFIG) || {};
+  // 容错：去掉用户粘贴时可能多带的斜杠或 /rest/v1 后缀
+  if (CLOUD.url) CLOUD.url = CLOUD.url.replace(/\/+$/, '').replace(/\/rest\/v1$/i, '');
+  const cloudStatusEl = $('cloudStatus');
+  const syncBtn = $('syncBtn');
+
+  function cloudEnabled() {
+    return !!(CLOUD.url && CLOUD.anonKey);
+  }
+
+  function saveLocal() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ students, history, soundOn }));
+    } catch (e) { /* 忽略存储失败 */ }
+  }
+
+  function loadLocal() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const data = JSON.parse(raw);
+        students = Array.isArray(data.students) ? data.students : [];
+        history = Array.isArray(data.history) ? data.history : [];
+        soundOn = typeof data.soundOn === 'boolean' ? data.soundOn : true;
+      }
+    } catch (e) { /* 忽略损坏数据 */ }
+  }
+
+  async function cloudSave() {
+    const res = await fetch(`${CLOUD.url}/rest/v1/${CLOUD.table}`, {
+      method: 'POST',
+      headers: {
+        apikey: CLOUD.anonKey,
+        Authorization: `Bearer ${CLOUD.anonKey}`,
+        'Content-Type': 'application/json',
+        Prefer: 'resolution=merge-duplicates,return=minimal',
+      },
+      body: JSON.stringify({
+        id: CLOUD.rowId,
+        students: students,
+        history: history,
+        updated_at: new Date().toISOString(),
+      }),
+    });
+    if (!res.ok) throw new Error('云端保存失败(' + res.status + ')');
+  }
+
+  async function cloudLoad() {
+    const res = await fetch(
+      `${CLOUD.url}/rest/v1/${CLOUD.table}?id=eq.${encodeURIComponent(CLOUD.rowId)}&select=students,history&limit=1`,
+      {
+        headers: {
+          apikey: CLOUD.anonKey,
+          Authorization: `Bearer ${CLOUD.anonKey}`,
+        },
+      }
+    );
+    if (!res.ok) throw new Error('云端读取失败(' + res.status + ')');
+    const data = await res.json();
+    if (!Array.isArray(data) || data.length === 0) {
+      // 云端还没有数据：把本地当前数据上传，完成首次同步
+      await cloudSave();
+      return;
+    }
+    const row = data[0];
+    if (Array.isArray(row.students)) students = row.students;
+    if (Array.isArray(row.history)) history = row.history;
+    saveLocal();
+  }
+
+  function setCloudStatus(state, msg) {
+    if (!cloudStatusEl) return;
+    if (state === 'local') {
+      cloudStatusEl.textContent = '💾 本地模式（名单仅存本机，填好云端配置可多设备同步）';
+      cloudStatusEl.className = 'cloud-status';
+      if (syncBtn) syncBtn.style.display = 'none';
+    } else if (state === 'ok') {
+      cloudStatusEl.textContent = msg || '☁️ 云端已同步';
+      cloudStatusEl.className = 'cloud-status ok';
+      if (syncBtn) syncBtn.style.display = 'inline-block';
+    } else {
+      cloudStatusEl.textContent = msg || '⚠️ 云端未连接，改动已暂存本机';
+      cloudStatusEl.className = 'cloud-status err';
+      if (syncBtn) syncBtn.style.display = 'inline-block';
+    }
+  }
+
+  function persist() {
+    saveLocal();
+    if (cloudEnabled()) {
+      cloudSave()
+        .then(() => setCloudStatus('ok'))
+        .catch(() => setCloudStatus('err'));
+    }
+  }
+
+  async function refreshFromCloud() {
+    if (!cloudEnabled() || isRolling) return;
+    try {
+      await cloudLoad();
+      renderRoster();
+      renderHistory();
+      setCloudStatus('ok');
+    } catch (e) {
+      setCloudStatus('err');
+    }
+  }
+
+  syncBtn.addEventListener('click', refreshFromCloud);
+
+  // ===== 渲染 =====
+  function renderRoster() {
+    rosterEl.innerHTML = '';
+    if (students.length === 0) {
+      rosterEl.innerHTML = '<div class="empty-tip">还没有学生，快添加名单吧 📝</div>';
+    } else {
+      students.forEach((name, idx) => {
+        const tag = document.createElement('span');
+        tag.className = 'tag';
+        tag.title = '点击移除';
+        const span = document.createElement('span');
+        span.textContent = name;
+        const del = document.createElement('span');
+        del.className = 'del';
+        del.textContent = '✕';
+        del.addEventListener('click', (e) => {
+          e.stopPropagation();
+          students.splice(idx, 1);
+          persist();
+          renderRoster();
+        });
+        tag.appendChild(span);
+        tag.appendChild(del);
+        tag.addEventListener('click', () => {
+          students.splice(idx, 1);
+          persist();
+          renderRoster();
+        });
+        rosterEl.appendChild(tag);
+      });
+    }
+    countBadge.textContent = students.length + ' 人';
+  }
+
+  function renderHistory() {
+    historyEl.innerHTML = '';
+    if (history.length === 0) {
+      historyEl.innerHTML = '<li class="empty">还没有抽选记录 🎯</li>';
+    } else {
+      // 最新的显示在上方
+      history.slice().reverse().forEach((item) => {
+        const li = document.createElement('li');
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'h-name';
+        nameSpan.textContent = item.name;
+        const timeSpan = document.createElement('span');
+        timeSpan.className = 'h-time';
+        timeSpan.textContent = item.time;
+        li.appendChild(nameSpan);
+        li.appendChild(timeSpan);
+        historyEl.appendChild(li);
+      });
+    }
+  }
+
+  function renderSoundBtn() {
+    soundBtn.textContent = soundOn ? '🔊 音效：开' : '🔇 音效：关';
+  }
+
+  function showToast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => toastEl.classList.remove('show'), 2000);
+  }
+
+  // ===== 名单操作 =====
+  function addStudent(name) {
+    name = name.trim();
+    if (!name) return;
+    if (students.includes(name)) {
+      showToast('「' + name + '」已在名单中');
+      return;
+    }
+    students.push(name);
+    persist();
+    renderRoster();
+  }
+
+  addBtn.addEventListener('click', () => {
+    addStudent(nameInput.value);
+    nameInput.value = '';
+    nameInput.focus();
+  });
+  nameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addStudent(nameInput.value);
+      nameInput.value = '';
+    }
+  });
+
+  bulkBtn.addEventListener('click', () => {
+    const raw = bulkInput.value;
+    // 支持换行、逗号、中文逗号、空格、制表符分隔
+    const parts = raw.split(/[\n,，、\t\s]+/).filter(Boolean);
+    let added = 0;
+    parts.forEach((n) => {
+      n = n.trim();
+      if (n && !students.includes(n)) { students.push(n); added++; }
+    });
+    persist();
+    renderRoster();
+    bulkInput.value = '';
+    showToast(added > 0 ? '成功导入 ' + added + ' 名同学 🎉' : '没有新同学需要导入');
+  });
+
+  // ===== 抽选逻辑 =====
+  function pickRandom() {
+    return students[Math.floor(Math.random() * students.length)];
+  }
+
+  function startDraw() {
+    if (isRolling) return;
+    if (students.length === 0) {
+      showToast('请先在左侧添加学生名单 🙏');
+      return;
+    }
+
+    isRolling = true;
+    drawBtn.disabled = true;
+    drawBtn.textContent = '⚡ 抽选中…';
+    stateHintEl.textContent = '命运的指针正在高速旋转…';
+    quoteEl.textContent = '';
+    currentNameEl.classList.remove('winner');
+    currentNameEl.classList.add('rolling');
+
+    let count = 0;
+    const totalTicks = 22 + Math.floor(Math.random() * 8); // 22~29 次
+    let delay = 45;
+
+    function tick() {
+      // 随机显示一个名字（避免连续相同）
+      let name = pickRandom();
+      if (students.length > 1) {
+        while (name === currentNameEl.textContent) name = pickRandom();
+      }
+      currentNameEl.textContent = name;
+      playTick(600 + Math.random() * 300);
+      count++;
+
+      if (count < totalTicks) {
+        // 逐渐减速，制造悬念
+        delay *= 1.16;
+        delay = Math.min(delay, 380);
+        setTimeout(tick, delay);
+      } else {
+        finishDraw();
+      }
+    }
+    tick();
+  }
+
+  function finishDraw() {
+    // 最终结果：若已内定且该生仍在名单中，则内定命中并清除内定
+    let winner;
+    if (riggedName && students.includes(riggedName)) {
+      winner = riggedName;
+      riggedName = null;
+      renderRigStatus();
+    } else {
+      winner = pickRandom();
+    }
+    currentNameEl.textContent = winner;
+    currentNameEl.classList.remove('rolling');
+    currentNameEl.classList.add('winner');
+    stateHintEl.textContent = '🎉 本次幸运同学';
+    quoteEl.textContent = QUOTES[Math.floor(Math.random() * QUOTES.length)];
+    drawBtn.textContent = '🎲 再抽一次';
+    drawBtn.disabled = false;
+    isRolling = false;
+
+    playFanfare();
+    burstConfetti();
+    drawConfetti();
+
+    // 记录历史
+    const now = new Date();
+    const timeStr = now.getFullYear() + '-' +
+      String(now.getMonth() + 1).padStart(2, '0') + '-' +
+      String(now.getDate()).padStart(2, '0') + ' ' +
+      String(now.getHours()).padStart(2, '0') + ':' +
+      String(now.getMinutes()).padStart(2, '0');
+    history.push({ name: winner, time: timeStr });
+    if (history.length > 200) history = history.slice(-200);
+    persist();
+    renderHistory();
+
+    // 名单中高亮刚抽到的人
+    const tags = rosterEl.querySelectorAll('.tag');
+    tags.forEach((tag) => {
+      if (tag.textContent.includes(winner)) tag.classList.add('picked');
+      else tag.classList.remove('picked');
+    });
+  }
+
+  drawBtn.addEventListener('click', startDraw);
+
+  // ===== 音效开关 =====
+  soundBtn.addEventListener('click', () => {
+    soundOn = !soundOn;
+    renderSoundBtn();
+    persist();
+    if (soundOn) playTick(880);
+  });
+
+  // ===== 清空记录 =====
+  clearHistoryBtn.addEventListener('click', () => {
+    if (history.length === 0) { showToast('记录已经是空的啦'); return; }
+    history = [];
+    persist();
+    renderHistory();
+    showToast('已清空抽选记录');
+  });
+
+  // ===== 键盘快捷键 =====
+  document.addEventListener('keydown', (e) => {
+    // 空格键抽选（输入框聚焦时不触发）
+    const tag = (e.target && e.target.tagName) || '';
+    const isInput = tag === 'INPUT' || tag === 'TEXTAREA';
+    if (e.code === 'Space' && !isInput) {
+      e.preventDefault();
+      startDraw();
+    }
+  });
+
+  // ===== 隐藏通道：导演模式 =====
+  const rigOverlay = $('rigOverlay');
+  const rigSelect = $('rigSelect');
+  const rigStatus = $('rigStatus');
+  const rigSetBtn = $('rigSetBtn');
+  const rigClearBtn = $('rigClearBtn');
+  const rigCloseBtn = $('rigCloseBtn');
+
+  function renderRigStatus() {
+    if (riggedName) {
+      rigStatus.textContent = '✅ 已内定：' + riggedName + '（下一次抽选必定抽中）';
+      rigStatus.classList.add('active');
+    } else {
+      rigStatus.textContent = '当前无内定，抽选为真随机';
+      rigStatus.classList.remove('active');
+    }
+  }
+
+  function renderRigPanel() {
+    rigSelect.innerHTML = '';
+    students.forEach((n) => {
+      const opt = document.createElement('option');
+      opt.value = n;
+      opt.textContent = n;
+      rigSelect.appendChild(opt);
+    });
+    if (riggedName) rigSelect.value = riggedName;
+    renderRigStatus();
+  }
+
+  function openRigPanel() {
+    renderRigPanel();
+    rigOverlay.classList.add('show');
+  }
+  function closeRigPanel() { rigOverlay.classList.remove('show'); }
+
+  rigSetBtn.addEventListener('click', () => {
+    if (students.length === 0) { showToast('请先添加学生名单'); return; }
+    riggedName = rigSelect.value;
+    renderRigStatus();
+    closeRigPanel();
+  });
+  rigClearBtn.addEventListener('click', () => { riggedName = null; renderRigStatus(); });
+  rigCloseBtn.addEventListener('click', closeRigPanel);
+  rigOverlay.addEventListener('click', (e) => { if (e.target === rigOverlay) closeRigPanel(); });
+
+  // 隐蔽入口：连点标题 5 次，或按 Ctrl+Shift+.
+  const mainTitle = document.querySelector('header h1');
+  let titleClicks = 0;
+  let titleClickTimer = null;
+  mainTitle.addEventListener('click', () => {
+    titleClicks++;
+    clearTimeout(titleClickTimer);
+    titleClickTimer = setTimeout(() => { titleClicks = 0; }, 1200);
+    if (titleClicks >= 5) {
+      titleClicks = 0;
+      openRigPanel();
+    }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.shiftKey && e.key === '.') {
+      e.preventDefault();
+      openRigPanel();
+    }
+  });
+
+  // ===== 初始化 =====
+  (async function init() {
+    loadLocal();
+    renderRoster();
+    renderHistory();
+    renderSoundBtn();
+
+    if (cloudEnabled()) {
+      setCloudStatus('err', '☁️ 正在连接云端…');
+      try {
+        await cloudLoad();
+        renderRoster();
+        renderHistory();
+        setCloudStatus('ok');
+      } catch (e) {
+        setCloudStatus('err');
+      }
+    } else {
+      setCloudStatus('local');
+    }
+
+    // 切换回本页 / 重新聚焦时自动拉取最新云端数据
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) refreshFromCloud();
+    });
+    window.addEventListener('focus', refreshFromCloud);
+
+    // 首次使用提示
+    if (students.length === 0) {
+      showToast('👋 欢迎！先添加学生名单，再开始抽选');
+    }
+  })();
+})();
+</script>
+</body>
+</html>
