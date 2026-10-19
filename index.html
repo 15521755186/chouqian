@@ -126,12 +126,12 @@
 
   #currentName.rolling {
     color: var(--cyan);
-    animation: pulse 0.18s linear infinite;
+    animation: slotRoll 0.16s linear infinite;
   }
-  @keyframes pulse {
-    0% { transform: scale(1); }
-    50% { transform: scale(1.05); }
-    100% { transform: scale(1); }
+  @keyframes slotRoll {
+    0%   { transform: translateY(3px) scale(1.03); filter: blur(0.8px); }
+    50%  { transform: translateY(-3px) scale(1);    filter: blur(0); }
+    100% { transform: translateY(3px) scale(1.03); filter: blur(0.8px); }
   }
 
   #currentName.winner {
@@ -1014,10 +1014,11 @@
   });
 
   // ===== 滚动速度档位 =====
+  // fast：高速匀速阶段间隔(ms)  slow：最终落定的最长间隔(ms)  brake：末尾减速的步数
   const SPEEDS = {
-    slow:   { label: '慢速', base: 70, mult: 1.12, cap: 520, ticksMin: 26, ticksMax: 34 },
-    normal: { label: '标准', base: 45, mult: 1.16, cap: 380, ticksMin: 22, ticksMax: 29 },
-    fast:   { label: '快速', base: 24, mult: 1.19, cap: 190, ticksMin: 16, ticksMax: 22 },
+    slow:   { label: '慢速', fast: 70, slow: 420, brake: 7, ticksMin: 20, ticksMax: 26 },
+    normal: { label: '标准', fast: 45, slow: 300, brake: 6, ticksMin: 16, ticksMax: 21 },
+    fast:   { label: '快速', fast: 22, slow: 160, brake: 5, ticksMin: 11, ticksMax: 15 },
   };
 
   // ===== 抽选逻辑 =====
@@ -1043,7 +1044,6 @@
     let count = 0;
     const sp = SPEEDS[drawSpeed] || SPEEDS.normal;
     const totalTicks = sp.ticksMin + Math.floor(Math.random() * (sp.ticksMax - sp.ticksMin + 1));
-    let delay = sp.base;
 
     function tick() {
       // 随机显示一个名字（避免连续相同）
@@ -1056,9 +1056,15 @@
       count++;
 
       if (count < totalTicks) {
-        // 逐渐减速，制造悬念
-        delay *= sp.mult;
-        delay = Math.min(delay, sp.cap);
+        // 前期高速匀速滚动，最后几步骤然减速，像老虎机落定
+        const remaining = totalTicks - count;
+        let delay;
+        if (remaining > sp.brake) {
+          delay = sp.fast;
+        } else {
+          const t = (sp.brake - remaining) / (sp.brake - 1); // 0 → 1
+          delay = sp.fast + (sp.slow - sp.fast) * t * t;
+        }
         setTimeout(tick, delay);
       } else {
         finishDraw();
