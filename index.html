@@ -210,6 +210,48 @@
   }
   .btn-ghost:hover { background: rgba(255, 255, 255, 0.12); }
 
+  /* ===== 滚动速度控制 ===== */
+  .speed-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .speed-label {
+    font-size: 13px;
+    color: var(--muted);
+    letter-spacing: 2px;
+  }
+  .speed-group {
+    display: inline-flex;
+    gap: 4px;
+    padding: 4px;
+    background: rgba(0, 0, 0, 0.28);
+    border: 1px solid var(--card-border);
+    border-radius: 13px;
+  }
+  .speed-btn {
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    padding: 8px 18px;
+    border-radius: 9px;
+    cursor: pointer;
+    transition: color 0.2s, background 0.2s, box-shadow 0.2s;
+    user-select: none;
+  }
+  .speed-btn:hover { color: var(--text); }
+  .speed-btn.active {
+    color: #fff;
+    background: linear-gradient(135deg, #0ea5e9, #6366f1);
+    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.45);
+  }
+
   /* ===== 两栏 ===== */
   .columns {
     display: grid;
@@ -444,6 +486,15 @@
       <button class="btn" id="drawBtn">🎲 开始抽选</button>
     </div>
 
+    <div class="speed-row">
+      <span class="speed-label">⚡ 滚动速度</span>
+      <div class="speed-group">
+        <button class="speed-btn" data-speed="slow">🐢 慢</button>
+        <button class="speed-btn active" data-speed="normal">⚡ 标准</button>
+        <button class="speed-btn" data-speed="fast">🚀 快</button>
+      </div>
+    </div>
+
     <div class="btn-row">
       <button class="btn btn-ghost" id="clearHistoryBtn">清空记录</button>
       <button class="btn btn-ghost" id="soundBtn">🔊 音效：开</button>
@@ -538,6 +589,7 @@
   let soundOn = true;
   let isRolling = false;
   let riggedName = null; // 内定的同学（一次性，抽中后自动清除）
+  let drawSpeed = 'normal'; // 滚动动画速度：slow / normal / fast
 
   // ===== DOM =====
   const $ = (id) => document.getElementById(id);
@@ -755,7 +807,7 @@
 
   function saveLocal() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ students, history, soundOn }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ students, history, soundOn, speed: drawSpeed }));
     } catch (e) { /* 忽略存储失败 */ }
   }
 
@@ -767,6 +819,7 @@
         students = Array.isArray(data.students) ? data.students : [];
         history = Array.isArray(data.history) ? data.history : [];
         soundOn = typeof data.soundOn === 'boolean' ? data.soundOn : true;
+        drawSpeed = SPEEDS[data.speed] ? data.speed : 'normal';
       }
     } catch (e) { /* 忽略损坏数据 */ }
   }
@@ -960,6 +1013,13 @@
     showToast(added > 0 ? '成功导入 ' + added + ' 名同学 🎉' : '没有新同学需要导入');
   });
 
+  // ===== 滚动速度档位 =====
+  const SPEEDS = {
+    slow:   { label: '慢速', base: 70, mult: 1.12, cap: 520, ticksMin: 26, ticksMax: 34 },
+    normal: { label: '标准', base: 45, mult: 1.16, cap: 380, ticksMin: 22, ticksMax: 29 },
+    fast:   { label: '快速', base: 24, mult: 1.19, cap: 190, ticksMin: 16, ticksMax: 22 },
+  };
+
   // ===== 抽选逻辑 =====
   function pickRandom() {
     return students[Math.floor(Math.random() * students.length)];
@@ -981,8 +1041,9 @@
     currentNameEl.classList.add('rolling');
 
     let count = 0;
-    const totalTicks = 22 + Math.floor(Math.random() * 8); // 22~29 次
-    let delay = 45;
+    const sp = SPEEDS[drawSpeed] || SPEEDS.normal;
+    const totalTicks = sp.ticksMin + Math.floor(Math.random() * (sp.ticksMax - sp.ticksMin + 1));
+    let delay = sp.base;
 
     function tick() {
       // 随机显示一个名字（避免连续相同）
@@ -996,8 +1057,8 @@
 
       if (count < totalTicks) {
         // 逐渐减速，制造悬念
-        delay *= 1.16;
-        delay = Math.min(delay, 380);
+        delay *= sp.mult;
+        delay = Math.min(delay, sp.cap);
         setTimeout(tick, delay);
       } else {
         finishDraw();
@@ -1057,6 +1118,22 @@
     renderSoundBtn();
     persist();
     if (soundOn) playTick(880);
+  });
+
+  // ===== 滚动速度控制 =====
+  const speedBtns = document.querySelectorAll('.speed-btn');
+  function renderSpeedBtns() {
+    speedBtns.forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.speed === drawSpeed);
+    });
+  }
+  speedBtns.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      drawSpeed = btn.dataset.speed;
+      renderSpeedBtns();
+      persist();
+      showToast('滚动速度已切换为「' + SPEEDS[drawSpeed].label + '」');
+    });
   });
 
   // ===== 清空记录 =====
@@ -1151,6 +1228,7 @@
     renderRoster();
     renderHistory();
     renderSoundBtn();
+    renderSpeedBtns();
 
     if (cloudEnabled()) {
       setCloudStatus('err', '☁️ 正在连接云端…');
