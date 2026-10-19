@@ -747,26 +747,8 @@
   }
 
   function drawConfetti() {
-    if (confetti.length === 0) { requestAnimationFrame(drawConfetti); return; }
-    bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
-
-    // 粒子
-    particles.forEach((p) => {
-      p.y -= p.speedY;
-      p.x += p.speedX + Math.sin(p.wobble) * 0.4;
-      p.wobble += p.wobbleSpeed;
-      if (p.y < -50) Object.assign(p, makeParticle(false), { y: bgCanvas.height + 40 });
-      if (p.x < -60) p.x = bgCanvas.width + 40;
-      if (p.x > bgCanvas.width + 60) p.x = -40;
-      bgCtx.save();
-      bgCtx.globalAlpha = p.alpha;
-      bgCtx.fillStyle = `hsl(${p.hue}, 80%, 70%)`;
-      bgCtx.font = `${p.size}px "Segoe UI", "PingFang SC", sans-serif`;
-      bgCtx.fillText(p.text, p.x, p.y);
-      bgCtx.restore();
-    });
-
-    // 彩带
+    if (confetti.length === 0) return;
+    // 只绘制彩带，不清空画布、不移动背景粒子（背景由 drawBackground 循环独立负责，避免速度翻倍）
     confetti = confetti.filter((c) => c.life > 0);
     confetti.forEach((c) => {
       c.x += c.vx;
@@ -789,9 +771,7 @@
       }
       bgCtx.restore();
     });
-
     if (confetti.length > 0) requestAnimationFrame(drawConfetti);
-    else requestAnimationFrame(drawBackground);
   }
 
   // ===== 持久化（本地 + 云端）=====
@@ -1016,9 +996,9 @@
   // ===== 滚动速度档位 =====
   // fast：高速匀速阶段间隔(ms)  slow：最终落定的最长间隔(ms)  brake：末尾减速的步数
   const SPEEDS = {
-    slow:   { label: '慢速', fast: 70, slow: 420, brake: 7, ticksMin: 20, ticksMax: 26 },
-    normal: { label: '标准', fast: 45, slow: 300, brake: 6, ticksMin: 16, ticksMax: 21 },
-    fast:   { label: '快速', fast: 22, slow: 160, brake: 5, ticksMin: 11, ticksMax: 15 },
+    slow:   { label: '慢速', fast: 75, slow: 560, brake: 8, ticksMin: 26, ticksMax: 32 },
+    normal: { label: '标准', fast: 50, slow: 480, brake: 7, ticksMin: 23, ticksMax: 28 },
+    fast:   { label: '快速', fast: 30, slow: 260, brake: 6, ticksMin: 16, ticksMax: 20 },
   };
 
   // ===== 抽选逻辑 =====
