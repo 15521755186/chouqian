@@ -252,6 +252,52 @@
     box-shadow: 0 4px 14px rgba(99, 102, 241, 0.45);
   }
 
+  /* ===== 班级选择栏 ===== */
+  .classbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 14px;
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: 16px;
+    padding: 14px 18px;
+    backdrop-filter: blur(8px);
+  }
+  .class-select-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 220px;
+  }
+  .class-label {
+    font-size: 14px;
+    color: var(--muted);
+    letter-spacing: 1px;
+    white-space: nowrap;
+  }
+  #classSelect {
+    flex: 1;
+    max-width: 340px;
+    padding: 10px 14px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+    color: var(--text);
+    font-size: 15px;
+    font-family: inherit;
+    outline: none;
+    cursor: pointer;
+  }
+  #classSelect:focus { border-color: var(--cyan); }
+  .class-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
   /* ===== 两栏 ===== */
   .columns {
     display: grid;
@@ -474,6 +520,19 @@
     <div class="subtitle">让每一次提问都充满悬念 · 让每一位同学都精神抖擞</div>
   </header>
 
+  <!-- 班级选择 -->
+  <section class="classbar">
+    <div class="class-select-wrap">
+      <span class="class-label">🏫 当前班级</span>
+      <select id="classSelect"></select>
+    </div>
+    <div class="class-actions">
+      <button class="btn btn-ghost" id="addClassBtn">➕ 新建班级</button>
+      <button class="btn btn-ghost" id="renameClassBtn">✏️ 重命名</button>
+      <button class="btn btn-ghost" id="deleteClassBtn">🗑️ 删除</button>
+    </div>
+  </section>
+
   <!-- 主舞台 -->
   <section class="stage">
     <div class="name-display">
@@ -584,8 +643,10 @@
 
   // ===== 状态 =====
   const STORAGE_KEY = 'physics-picker-data-v1';
-  let students = [];
-  let history = [];
+  let classes = [];          // 多班级：[{id, name, students, history}]
+  let currentClassId = null; // 当前选中班级 id
+  let students = [];         // 当前班级学生名单（活跃班级数组的引用）
+  let history = [];          // 当前班级抽选记录（活跃班级数组的引用）
   let soundOn = true;
   let isRolling = false;
   let riggedName = null; // 内定的同学（一次性，抽中后自动清除）
@@ -607,6 +668,10 @@
   const clearHistoryBtn = $('clearHistoryBtn');
   const soundBtn = $('soundBtn');
   const toastEl = $('toast');
+  const classSelect = $('classSelect');
+  const addClassBtn = $('addClassBtn');
+  const renameClassBtn = $('renameClassBtn');
+  const deleteClassBtn = $('deleteClassBtn');
 
   // ===== 物理趣味台词 =====
   const QUOTES = [
@@ -787,7 +852,7 @@
 
   function saveLocal() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ students, history, soundOn, speed: drawSpeed }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ classes, currentClassId, soundOn, speed: drawSpeed }));
     } catch (e) { /* 忽略存储失败 */ }
   }
 
@@ -796,12 +861,12 @@
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const data = JSON.parse(raw);
-        students = Array.isArray(data.students) ? data.students : [];
-        history = Array.isArray(data.history) ? data.history : [];
         soundOn = typeof data.soundOn === 'boolean' ? data.soundOn : true;
         drawSpeed = SPEEDS[data.speed] ? data.speed : 'normal';
+        ingestState(data);
       }
     } catch (e) { /* 忽略损坏数据 */ }
+    if (classes.length === 0) ingestState({});
   }
 
   async function cloudSave() {
@@ -815,8 +880,8 @@
       },
       body: JSON.stringify({
         id: CLOUD.rowId,
-        students: students,
-        history: history,
+        students: classes,        // 复用 students 列：存班级数组
+        history: currentClassId,  // 复用 history 列：存当前班级 id
         updated_at: new Date().toISOString(),
       }),
     });
@@ -841,8 +906,13 @@
       return;
     }
     const row = data[0];
-    if (Array.isArray(row.students)) students = row.students;
-    if (Array.isArray(row.history)) history = row.history;
+    // 兼容新旧格式：新版 students 列存班级数组，旧版存单一名单数组
+    if (Array.isArray(row.students) && row.students.length > 0 &&
+        typeof row.students[0] === 'object' && Array.isArray(row.students[0].students)) {
+      ingestState({ classes: row.students, currentClassId: (typeof row.history === 'string') ? row.history : null });
+    } else {
+      ingestState({ students: row.students, history: row.history });
+    }
     saveLocal();
   }
 
@@ -876,6 +946,7 @@
     if (!cloudEnabled() || isRolling) return;
     try {
       await cloudLoad();
+      renderClassSelect();
       renderRoster();
       renderHistory();
       setCloudStatus('ok');
@@ -885,6 +956,98 @@
   }
 
   syncBtn.addEventListener('click', refreshFromCloud);
+
+  // ===== 班级管理 =====
+  function genId() {
+    return 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  }
+
+  function activeClass() {
+    return classes.find((c) => c.id === currentClassId) || null;
+  }
+
+  // 把本地/云端数据解析成多班级结构，并兼容旧版单一名单的迁移
+  function ingestState(data) {
+    data = data || {};
+    if (Array.isArray(data.classes) && data.classes.length > 0) {
+      classes = data.classes.map((c) => ({
+        id: c.id || genId(),
+        name: c.name || '未命名班级',
+        students: Array.isArray(c.students) ? c.students : [],
+        history: Array.isArray(c.history) ? c.history : [],
+      }));
+      currentClassId = classes.some((c) => c.id === data.currentClassId) ? data.currentClassId : classes[0].id;
+    } else if (Array.isArray(data.students)) {
+      // 旧版：单一名单 → 迁移成一个「默认班级」
+      classes = [{ id: genId(), name: '默认班级', students: data.students, history: Array.isArray(data.history) ? data.history : [] }];
+      currentClassId = classes[0].id;
+    }
+    if (classes.length === 0) {
+      classes = [{ id: genId(), name: '默认班级', students: [], history: [] }];
+      currentClassId = classes[0].id;
+    }
+    const ac = activeClass();
+    students = ac.students;
+    history = ac.history;
+  }
+
+  function setActiveClass(id) {
+    const c = classes.find((x) => x.id === id);
+    if (!c) return;
+    currentClassId = id;
+    students = c.students;
+    history = c.history;
+    riggedName = null; // 切换班级后取消内定，避免张冠李戴
+    renderClassSelect();
+    renderRoster();
+    renderHistory();
+    renderRigStatus();
+    persist();
+  }
+
+  function renderClassSelect() {
+    classSelect.innerHTML = '';
+    classes.forEach((c) => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = c.name + ' · ' + c.students.length + ' 人';
+      classSelect.appendChild(opt);
+    });
+    classSelect.value = currentClassId;
+  }
+
+  classSelect.addEventListener('change', () => setActiveClass(classSelect.value));
+
+  addClassBtn.addEventListener('click', () => {
+    const name = (prompt('请输入新班级名称：') || '').trim();
+    if (!name) return;
+    classes.push({ id: genId(), name: name, students: [], history: [] });
+    setActiveClass(classes[classes.length - 1].id);
+    showToast('已新建班级「' + name + '」');
+  });
+
+  renameClassBtn.addEventListener('click', () => {
+    const ac = activeClass();
+    if (!ac) return;
+    const name = (prompt('班级新名称：', ac.name) || '').trim();
+    if (!name) return;
+    ac.name = name;
+    renderClassSelect();
+    persist();
+    showToast('已重命名为「' + name + '」');
+  });
+
+  deleteClassBtn.addEventListener('click', () => {
+    const ac = activeClass();
+    if (!ac) return;
+    if (!confirm('确定删除班级「' + ac.name + '」及其名单、记录吗？此操作不可恢复。')) return;
+    classes = classes.filter((c) => c.id !== currentClassId);
+    if (classes.length === 0) {
+      classes.push({ id: genId(), name: '默认班级', students: [], history: [] });
+    }
+    setActiveClass(classes[0].id);
+    showToast('已删除班级「' + ac.name + '」');
+  });
 
   // ===== 渲染 =====
   function renderRoster() {
@@ -918,6 +1081,12 @@
       });
     }
     countBadge.textContent = students.length + ' 人';
+    // 同步更新班级下拉里的显示人数
+    const ac = activeClass();
+    if (ac) {
+      const opt = classSelect.querySelector('option[value="' + ac.id + '"]');
+      if (opt) opt.textContent = ac.name + ' · ' + ac.students.length + ' 人';
+    }
   }
 
   function renderHistory() {
@@ -1084,7 +1253,7 @@
       String(now.getHours()).padStart(2, '0') + ':' +
       String(now.getMinutes()).padStart(2, '0');
     history.push({ name: winner, time: timeStr });
-    if (history.length > 200) history = history.slice(-200);
+    if (history.length > 200) history.splice(0, history.length - 200);
     persist();
     renderHistory();
 
@@ -1125,7 +1294,7 @@
   // ===== 清空记录 =====
   clearHistoryBtn.addEventListener('click', () => {
     if (history.length === 0) { showToast('记录已经是空的啦'); return; }
-    history = [];
+    history.length = 0;
     persist();
     renderHistory();
     showToast('已清空抽选记录');
@@ -1211,6 +1380,7 @@
   // ===== 初始化 =====
   (async function init() {
     loadLocal();
+    renderClassSelect();
     renderRoster();
     renderHistory();
     renderSoundBtn();
